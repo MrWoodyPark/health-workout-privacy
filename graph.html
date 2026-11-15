@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>나의 운동 그래프 · 헬스운동관리</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,sans-serif;background:#f5f6f2;color:#253e30}body{margin:0}main{max-width:760px;margin:auto;padding:28px 18px}h1{font-size:26px}h2{font-size:18px}p{line-height:1.6}.card{background:white;border:1px solid #dce2d9;border-radius:20px;padding:18px;margin:18px 0}svg{width:100%;height:auto}svg text{fill:currentColor;font-size:12px}table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:8px;border-bottom:1px solid #ddd}small,.note{color:#647469}summary{padding:10px 0;cursor:pointer}.error{color:#a43f39}footer{font-size:13px;margin-top:26px}a{color:inherit}@media(prefers-color-scheme:dark){:root{background:#17241c;color:#edf1e9}.card{background:#23372a;border-color:#435547}.note,small{color:#b6c4b7}}
+</style>
+</head><body><main>
+<h1>나의 운동 그래프</h1><p id="scope" class="note">공유한 기록을 불러오는 중입니다.</p>
+<div id="graphs"></div>
+<p class="note">사용자가 선택해 공유한 완료 기록의 요약입니다. 값은 공유 시점 기준이며 수정될 수 있습니다. 볼륨은 기록된 횟수 × 중량의 합으로, 미기록 세트는 제외합니다. 심박수는 부위·종목 필터와 관계없이 해당 날짜 전체 기록 기준입니다. 그래프마다 단위와 눈금이 다릅니다.</p>
+<p class="note">이 링크의 수치는 주소의 # 뒤에 담겨 브라우저에서만 표시됩니다. 별도 데이터 서버·분석 도구로 전송하지 않습니다. 링크를 전달받은 사람은 누구나 볼 수 있으며 보낸 링크는 회수할 수 없습니다.</p>
+<footer>헬스운동관리 · WoodyyVerse · <a href="./">개인정보처리방침</a></footer>
+</main><script>
+'use strict';
+function decodeGraph(hash) {
+  const raw=hash.replace(/^#/, '');
+  if(!raw || raw.length>12000 || !/^[A-Za-z0-9_-]+$/.test(raw)) throw Error('invalid');
+  const base=raw.replace(/-/g,'+').replace(/_/g,'/');
+  const bytes=Uint8Array.from(atob(base+'='.repeat((4-base.length%4)%4)), c=>c.charCodeAt(0));
+  const data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+  if(data.version!==1 || typeof data.scope!=='string' || data.scope.length>250 || !Array.isArray(data.series) || !data.series.length || data.series.length>12) throw Error('invalid');
+  let total=0;
+  for(const s of data.series){
+    if(typeof s.title!=='string'||s.title.length>250||!['분','초','kg','kg·회','bpm'].includes(s.unit)||!Array.isArray(s.dates)||!Array.isArray(s.values)||s.dates.length!==s.values.length||!s.dates.length)throw Error('invalid');
+    total+=s.dates.length;if(total>2000)throw Error('invalid');
+    for(let i=0;i<s.dates.length;i++){
+      const d=s.dates[i],v=s.values[i];
+      if(typeof d!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d)||!Number.isFinite(Date.parse(d))||new Date(d).toISOString().slice(0,10)!==d||typeof v!=='number'||!Number.isFinite(v)||v<0||v>1e12)throw Error('invalid');
+    }
+  }
+  return data;
+}
+function element(tag,text,parent){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(parent)parent.append(el);return el}
+function svgElement(tag,attrs,parent,text){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [key,val]of Object.entries(attrs))el.setAttribute(key,String(val));if(text!==undefined)el.textContent=text;parent.append(el);return el}
+function showGraph(data){
+ document.getElementById('scope').textContent=data.scope;
+ const allDates=data.series.flatMap(s=>s.dates.map(d=>Date.parse(d))),first=Math.min(...allDates),last=Math.max(...allDates),span=Math.max(86400000,last-first);
+ const root=document.getElementById('graphs');root.replaceChildren();
+ for(const s of data.series){
+  const card=element('section',undefined,root);card.className='card';element('h2',s.title+' · '+s.unit,card);
+  const svg=svgElement('svg',{viewBox:'0 0 660 245',role:'img','aria-label':s.title+' 날짜별 변화'},card);
+  const max=Math.max(1,...s.values),x=d=>65+(Date.parse(d)-first)/span*570,y=v=>195-v/max*165;
+  for(let i=0;i<4;i++){let value=max*i/3;svgElement('line',{x1:65,x2:635,y1:y(value),y2:y(value),stroke:'#a4b5a6','stroke-opacity':.3},svg);svgElement('text',{x:58,y:y(value)+4,'text-anchor':'end'},svg,value.toLocaleString('ko-KR',{maximumFractionDigits:1}));}
+  svgElement('polyline',{points:s.dates.map((d,i)=>x(d)+','+y(s.values[i])).join(' '),fill:'none',stroke:'#608e6a','stroke-width':3},svg);
+  for(let i=0;i<s.dates.length;i++){const dot=svgElement('circle',{cx:x(s.dates[i]),cy:y(s.values[i]),r:4,fill:'#608e6a'},svg);svgElement('title',{},dot,s.dates[i]+' · '+s.values[i]+' '+s.unit);}
+  svgElement('text',{x:65,y:225},svg,new Date(first).toISOString().slice(0,10));svgElement('text',{x:635,y:225,'text-anchor':'end'},svg,new Date(last).toISOString().slice(0,10));
+  const details=element('details',undefined,card);element('summary','날짜별 수치 보기',details);const table=element('table',undefined,details);const head=element('tr',undefined,table);element('th','날짜',head);element('th',s.unit,head);
+  for(let i=0;i<s.dates.length;i++){const row=element('tr',undefined,table);element('td',s.dates[i],row);element('td',s.values[i].toLocaleString('ko-KR',{maximumFractionDigits:2}),row);}
+ }
+}
+function load(){try{showGraph(decodeGraph(location.hash))}catch{document.getElementById('graphs').replaceChildren();const scope=document.getElementById('scope');scope.className='error';scope.textContent='그래프 정보가 없거나 링크가 올바르지 않습니다. 앱에서 그래프 링크를 다시 공유해 주세요.'}}
+load();window.addEventListener('hashchange',load);
+</script></body></html>
